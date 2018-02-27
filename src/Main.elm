@@ -1,22 +1,38 @@
 module Main exposing (..)
 
-import Html exposing (Html, text, div, h1, img)
-import Html.Attributes exposing (src)
+import Html exposing (Html, text, div, h1, img, input, p, span, a)
+import Html.Attributes exposing (value, type_, src, href)
+import Html.Events exposing (onInput, onClick)
 import Http
 import Json.Decode as Decode
-import Json.Encode as Encode
+
+
+type alias Id =
+    String
+
+
+type alias User =
+    { followeesCount : Int
+    , followersCount : Int
+    , githubLoginName : Maybe String
+    , qiitaId : Id
+    , itemsCount : Int
+    , profileImageUrl : String
+    , twitterScreenName : Maybe String
+    }
+
 
 
 ---- MODEL ----
 
 
 type alias Model =
-    {}
+    { typedId : Id, user : Maybe User }
 
 
 init : ( Model, Cmd Msg )
 init =
-    ( {}, Cmd.none )
+    ( { typedId = "ababup1192", user = Nothing }, getUser "ababup1192" )
 
 
 
@@ -24,24 +40,69 @@ init =
 
 
 type Msg
-    = NoOp
+    = InputId Id
+    | Search
+    | GetUserResponse (Result Http.Error User)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
-update msg model =
-    ( model, Cmd.none )
+update msg ({ typedId } as model) =
+    case msg of
+        InputId id ->
+            ( { model | typedId = id }, Cmd.none )
+
+        Search ->
+            ( model, getUser typedId )
+
+        GetUserResponse result ->
+            case result of
+                Ok user ->
+                    ( { model | user = Just user }, Cmd.none )
+
+                Err err ->
+                    ( { model | user = Nothing }, Cmd.none )
 
 
 
 ---- VIEW ----
 
 
+emptyContent : Html Msg
+emptyContent =
+    text ""
+
+
 view : Model -> Html Msg
-view model =
-    div []
-        [ img [ src "/logo.svg" ] []
-        , h1 [] [ text "Your Elm App is working!" ]
-        ]
+view { typedId, user } =
+    case user of
+        Just u ->
+            let
+                { profileImageUrl, itemsCount, twitterScreenName, githubLoginName, qiitaId } =
+                    u
+
+                twitter =
+                    Maybe.map (\name -> a [ href <| "https://twitter.com/" ++ name ] [ p [] [ text "Twitter" ] ]) twitterScreenName
+                        |> Maybe.withDefault emptyContent
+
+                github =
+                    Maybe.map (\name -> a [ href <| "https://github.com/" ++ name ] [ p [] [ text "GitHub" ] ]) githubLoginName
+                        |> Maybe.withDefault emptyContent
+            in
+                div []
+                    [ input [ value typedId, onInput InputId ] []
+                    , input [ type_ "button", value "search", onClick Search ] []
+                    , p [] [ text qiitaId ]
+                    , img [ src profileImageUrl ] []
+                    , div []
+                        [ span [] [ text "投稿数" ]
+                        , span [] [ text <| toString itemsCount ]
+                        ]
+                    , twitter
+                    , github
+                    ]
+
+        Nothing ->
+            h1 [] [ text "そのユーザは存在しません。" ]
 
 
 
@@ -58,71 +119,33 @@ main =
         }
 
 
+qiitaDomain : String
+qiitaDomain =
+    "https://qiita.com/api/v2"
 
-{--
 
--- HTTP Reqeust (認証なし)
 
 -- http://package.elm-lang.org/packages/elm-lang/core/5.1.1/Json-Decode
-
-decodeHoge : Decode.Decoder Hoge
-decodeHoge =
-    Decode.map3 Hoge
-        (Decode.at [ "id" ] Decode.int)
-        (Decode.at [ "name" ] Decode.string)
-        (Decode.at [ "job" ] Decode.string)
-
-decodeHogeList : Decode.Decoder (List Hoge)
-decodeHogeList =
-    Decode.list decodeHoge
+-- もし、Decode.map8 までに収まらない場合は、Json-Decode-Pipelineを検討
+-- http://package.elm-lang.org/packages/NoRedInk/elm-decode-pipeline/3.0.0/Json-Decode-Pipeline#decode
 
 
-getHoge =
-    let
-       url = qiitaDomain ++ "/users/ababup1192"
+decodeUser : Decode.Decoder User
+decodeUser =
+    Decode.map7 User
+        (Decode.field "followees_count" Decode.int)
+        (Decode.field "followers_count" Decode.int)
+        (Decode.maybe (Decode.field "github_login_name" Decode.string))
+        (Decode.field "id" Decode.string)
+        (Decode.field "items_count" Decode.int)
+        (Decode.field "profile_image_url" Decode.string)
+        (Decode.maybe (Decode.field "twitter_screen_name" Decode.string))
 
 
-    in
-        Http.send msg <| (Http.get url decodeHogeList)
-
-
-qiitaDomain =
-    "https://qiita.com/api/v2/"
-
-
-authHeader =
-    Http.header "Authorization"
-        "Bearer YOUR_TOKEN"
-
-
-
--- HTTP Request (認証あり)
-
-
-getAuthHoge : Cmd Msg
-getAuthHoge =
+getUser : Id -> Cmd Msg
+getUser id =
     let
         url =
-            qiitaDomain ++ "/users/ababup1192"
-
-        -- POSTする必要がある場合には、jsonを生成してください。
-        -- jsonBody =
-        --    Http.jsonBody <| json
-        request =
-            Http.request
-                { method = "GET"
-                , headers = [ authHeader ]
-                , url = url
-
-                -- , body = jsonBody
-                , expect = Http.expectStringResponse (\_ -> Ok ())
-                , timeout = Nothing
-                , withCredentials = False
-                }
+            qiitaDomain ++ "/users/" ++ id
     in
-        -- http://package.elm-lang.org/packages/elm-lang/http/1.0.0/Http#send
-        -- http://package.elm-lang.org/packages/elm-lang/core/latest/Result
-        -- Cmd Msg (Result Http.Error String)
-        Http.send msg request
-
- --}
+        Http.send GetUserResponse <| (Http.get url decodeUser)
